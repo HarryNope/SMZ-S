@@ -1,0 +1,333 @@
+<!DOCTYPE html><html lang="de"><head><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://puc.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuronales Netz Visualisierung</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --blue-node-color: #3b82f6;
+            --orange-node-color: #f97316;
+        }
+        
+        .dark {
+            --blue-node-color: #60a5fa;
+            --orange-node-color: #fb923c;
+        }
+        
+        svg {
+            width: 100%;
+            height: 100%;
+            max-height: 500px;
+        }
+        
+        .node {
+            cursor: pointer;
+        }
+        
+        .arrow {
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+        }
+        
+        .arrow.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        /* Wir ersetzen die CSS-Animation durch JavaScript */
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 bg-white dark:bg-gray-900 dark:text-white">
+    <h1 class="text-2xl font-bold mb-4 text-center">Neuronales Netz Visualisierung</h1>
+    <div class="w-full max-w-4xl mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-sm">
+        <ul class="list-disc pl-5 space-y-1">
+            <li>Klicken Sie auf einen <span class="text-blue-600 dark:text-blue-400 font-semibold">blauen Kreis</span>, um zu sehen, mit welchen orangenen Kreisen er verbunden ist</li>
+            <li>Klicken Sie auf einen <span class="text-gray-500 font-semibold">Pfeil</span>, um ihn auszublenden</li>
+            <li>Drücken Sie auf <span class="text-[#5D5CDE] dark:text-[#7a79ef] font-semibold">Alle Pfeile zurücksetzen</span>, um alle ausgeblendeten Pfeile wieder anzuzeigen</li>
+        </ul>
+    </div>
+    <div class="w-full max-w-4xl flex-grow relative">
+        <svg id="neural-network" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+            <!-- Pfeile werden hier dynamisch eingefügt -->
+            <g id="arrows"></g>
+            <!-- Knoten werden hier dynamisch eingefügt -->
+            <g id="nodes"></g>
+        </svg>
+    </div>
+    <button id="reset-button" class="mt-4 bg-[#5D5CDE] hover:bg-[#4a49b8] text-white py-2 px-4 rounded-md transition-colors">
+        Alle Pfeile zurücksetzen
+    </button>
+
+    <script>
+        // Prüfen, ob Dark Mode aktiviert ist
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+
+        // Auf Änderungen des Farbschemas reagieren
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        // Konfiguration
+        const config = {
+            blueNodes: 9,
+            orangeNodes: 3,
+            svgWidth: 1000,
+            svgHeight: 500,
+            nodeRadius: 25,
+            blueNodesY: 100,
+            orangeNodesY: 400,
+            arrowCurvature: 0
+        };
+
+        // Hilfsfunktion, um einen Knoten zu erstellen
+        function createNode(x, y, radius, number, color, container) {
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            group.classList.add("node");
+            
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", x);
+            circle.setAttribute("cy", y);
+            circle.setAttribute("r", radius);
+            circle.setAttribute("fill", color);
+            circle.setAttribute("stroke", "#000");
+            circle.setAttribute("stroke-width", "2");
+            
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", x);
+            text.setAttribute("y", y + 5);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("font-size", radius * 0.8);
+            text.setAttribute("fill", "#fff");
+            text.textContent = number;
+            
+            group.appendChild(circle);
+            group.appendChild(text);
+            container.appendChild(group);
+            
+            return { x, y, element: group };
+        }
+
+        // Hilfsfunktion, um einen Pfeil zu erstellen
+        function createArrow(startX, startY, endX, endY, id, container) {
+            // Berechne einen Kontrollpunkt für die Kurve
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2 + config.arrowCurvature;
+            
+            // Berechne den Punkt, wo die Linie auf den Zielkreis trifft
+            const angle = Math.atan2(endY - startY, endX - startX);
+            const arrowEndX = endX - Math.cos(angle) * config.nodeRadius;
+            const arrowEndY = endY - Math.sin(angle) * config.nodeRadius;
+            
+            // Erstelle einen Pfad
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("id", id);
+            path.setAttribute("d", `M ${startX} ${startY} Q ${midX} ${midY} ${arrowEndX} ${arrowEndY}`);
+            path.setAttribute("stroke", "#888");
+            path.setAttribute("stroke-width", "2");
+            path.setAttribute("fill", "none");
+            path.setAttribute("marker-end", "url(#arrowhead)");
+            path.classList.add("arrow");
+            
+            // Füge einen Click-Event hinzu
+            path.addEventListener("click", () => {
+                path.classList.toggle("hidden");
+            });
+            
+            container.appendChild(path);
+            return path;
+        }
+
+        // JavaScript-basierte Animation für orangene Kreise
+        function animateOrangeNode(circle) {
+            // Originale Attribute speichern
+            const originalRadius = parseFloat(circle.getAttribute('r'));
+            const originalFill = circle.getAttribute('fill');
+            const originalStroke = circle.getAttribute('stroke');
+            const originalStrokeWidth = circle.getAttribute('stroke-width');
+            
+            // Animation-Timing
+            const duration = 600; // ms
+            const startTime = Date.now();
+            
+            // Stoppe vorherige Animationen, falls vorhanden
+            if (circle.animation) {
+                cancelAnimationFrame(circle.animation);
+                circle.animation = null;
+            }
+            
+            // Animations-Funktion
+            function animate() {
+                const elapsedTime = Date.now() - startTime;
+                const progress = Math.min(elapsedTime / duration, 1);
+                
+                if (progress < 1) {
+                    // Berechne den aktuellen Radius und Farbe basierend auf der Animation-Kurve
+                    // Wir verwenden eine Sinuskurve für einen glatten Pulseffekt
+                    const pulseProgress = Math.sin(progress * Math.PI);
+                    const currentRadius = originalRadius + (pulseProgress * 5); // Bis zu 5px größer
+                    
+                    // Setze neue Werte
+                    circle.setAttribute('r', currentRadius);
+                    
+                    // Setze Highlight-Farbe und Glühen am Peak der Animation
+                    if (progress > 0.3 && progress < 0.7) {
+                        circle.setAttribute('fill', '#ffb700');
+                        circle.setAttribute('filter', 'drop-shadow(0 0 8px rgba(255, 183, 0, 0.8))');
+                    } else {
+                        circle.setAttribute('fill', originalFill);
+                        circle.setAttribute('filter', 'none');
+                    }
+                    
+                    // Fortsetzung der Animation
+                    circle.animation = requestAnimationFrame(animate);
+                } else {
+                    // Animation beenden und Original-Werte wiederherstellen
+                    circle.setAttribute('r', originalRadius);
+                    circle.setAttribute('fill', originalFill);
+                    circle.setAttribute('stroke', originalStroke);
+                    circle.setAttribute('stroke-width', originalStrokeWidth);
+                    circle.setAttribute('filter', 'none');
+                    circle.animation = null;
+                }
+            }
+            
+            // Starte die Animation
+            circle.animation = requestAnimationFrame(animate);
+        }
+        
+        // Funktion zum Hervorheben der verbundenen orangenen Kreise
+        function highlightConnectedNodes(blueNodeIndex, orangeNodes) {
+            // Überprüfe, welche orangenen Knoten verbunden sind
+            const connectedOrangeIndices = [];
+            
+            for (let orangeIndex = 0; orangeIndex < config.orangeNodes; orangeIndex++) {
+                const arrowId = `arrow-${blueNodeIndex}-${orangeIndex}`;
+                const arrow = document.getElementById(arrowId);
+                
+                // Wenn der Pfeil sichtbar ist (nicht versteckt), füge den Index hinzu
+                if (arrow && !arrow.classList.contains('hidden')) {
+                    connectedOrangeIndices.push(orangeIndex);
+                }
+            }
+            
+            // Hebe die verbundenen orangenen Knoten hervor
+            connectedOrangeIndices.forEach(orangeIndex => {
+                const orangeNode = orangeNodes[orangeIndex];
+                const circle = orangeNode.element.querySelector('circle');
+                
+                // Starte die Animation für diesen Kreis
+                animateOrangeNode(circle);
+            });
+        }
+
+        // Initialisiere die Visualisierung
+        function initializeVisualization() {
+            const svg = document.getElementById("neural-network");
+            const nodesContainer = document.getElementById("nodes");
+            const arrowsContainer = document.getElementById("arrows");
+            
+            // Definiere einen Pfeilkopf
+            const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+            svg.appendChild(defs);
+            
+            const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+            marker.setAttribute("id", "arrowhead");
+            marker.setAttribute("markerWidth", "10");
+            marker.setAttribute("markerHeight", "7");
+            marker.setAttribute("refX", "0");
+            marker.setAttribute("refY", "3.5");
+            marker.setAttribute("orient", "auto");
+            
+            const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+            polygon.setAttribute("points", "0 0, 10 3.5, 0 7");
+            polygon.setAttribute("fill", "#888");
+            
+            marker.appendChild(polygon);
+            defs.appendChild(marker);
+            
+            // Erstelle blaue Knoten (von 10 bis 2 nummeriert)
+            const blueNodes = [];
+            const blueNodeSpacing = config.svgWidth / (config.blueNodes + 1);
+            
+            for (let i = 1; i <= config.blueNodes; i++) {
+                const x = blueNodeSpacing * i;
+                const node = createNode(
+                    x, 
+                    config.blueNodesY, 
+                    config.nodeRadius, 
+                    10 - i + 1, // Nummeriere von 10 bis 2 (von links nach rechts)
+                    "var(--blue-node-color)", 
+                    nodesContainer
+                );
+                blueNodes.push(node);
+            }
+            
+            // Erstelle orangene Knoten
+            const orangeNodes = [];
+            const orangeNodeSpacing = config.svgWidth / (config.orangeNodes + 1);
+            
+            for (let i = 1; i <= config.orangeNodes; i++) {
+                const x = orangeNodeSpacing * i;
+                const node = createNode(
+                    x, 
+                    config.orangeNodesY, 
+                    config.nodeRadius, 
+                    i, // Nummeriere von 1 bis 3
+                    "var(--orange-node-color)", 
+                    nodesContainer
+                );
+                orangeNodes.push(node);
+            }
+            
+            // Erstelle Pfeile zwischen den Knoten
+            const arrows = [];
+            
+            blueNodes.forEach((blueNode, blueIndex) => {
+                orangeNodes.forEach((orangeNode, orangeIndex) => {
+                    const id = `arrow-${blueIndex}-${orangeIndex}`;
+                    const arrow = createArrow(
+                        blueNode.x,
+                        blueNode.y + config.nodeRadius,
+                        orangeNode.x,
+                        orangeNode.y - config.nodeRadius,
+                        id,
+                        arrowsContainer
+                    );
+                    arrows.push(arrow);
+                });
+            });
+            
+            // Füge Klick-Handler für blaue Knoten hinzu
+            blueNodes.forEach((blueNode, blueIndex) => {
+                blueNode.element.addEventListener("click", () => {
+                    highlightConnectedNodes(blueIndex, orangeNodes);
+                });
+            });
+            
+            // Reset-Button-Funktion
+            const resetButton = document.getElementById("reset-button");
+            resetButton.addEventListener("click", () => {
+                arrows.forEach(arrow => {
+                    arrow.classList.remove("hidden");
+                });
+                
+                // Entferne alle Hervorhebungen
+                orangeNodes.forEach(node => {
+                    const circle = node.element.querySelector('circle');
+                    circle.classList.remove('orange-node-highlight');
+                });
+            });
+        }
+
+        // Starte die Visualisierung, sobald die Seite geladen ist
+        document.addEventListener("DOMContentLoaded", initializeVisualization);
+    </script>
+
+
+</body></html>
